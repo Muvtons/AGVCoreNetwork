@@ -39,6 +39,9 @@ public:
   // Emergency broadcast (bypasses normal queue)
   void broadcastEmergency(const char* message);
   
+  // WebSocket event handler - NOW PUBLIC (was private)
+  void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
+  
   // Library handles everything else automatically
   void loop(); // Called automatically in background task
 
@@ -67,7 +70,6 @@ private:
   void startAPMode();
   void startStationMode();
   void setupRoutes();
-  void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
   void processSerialInput();
   String getSessionToken();
   void core0Task(void *parameter);

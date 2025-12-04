@@ -214,7 +214,9 @@ void AGV_CommunicationHub::processSerialInput() {
           Serial.printf("[SERIAL] Executed: %s\n", serialBuffer);
           
           // Broadcast to web clients
-          webSocket->broadcastTXT(String("SERIAL: ") + serialBuffer);
+          if (webSocket) {
+            webSocket->broadcastTXT(String("SERIAL: ") + serialBuffer);
+          }
         }
         
         bufferIndex = 0;
@@ -233,6 +235,7 @@ String AGV_CommunicationHub::getSessionToken() {
   return token;
 }
 
+// WebSocket event handler - NOW PROPERLY IMPLEMENTED
 void AGV_CommunicationHub::handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   switch(type) {
     case WStype_DISCONNECTED:
@@ -272,10 +275,12 @@ void AGV_CommunicationHub::handleWebSocketEvent(uint8_t num, WStype_t type, uint
         String response = "Received: " + String(cmd);
         webSocket->sendTXT(num, response);
         
-        // Broadcast to all clients except sender
-        for (uint8_t i = 0; i < webSocket->count(); i++) {
-          if (i != num) {
-            webSocket->sendTXT(i, String("CLIENT: ") + cmd);
+        // Broadcast to all clients except sender - FIXED: use clientCount()
+        if (webSocket) {
+          for (uint8_t i = 0; i < webSocket->clientCount(); i++) {
+            if (i != num) {
+              webSocket->sendTXT(i, String("CLIENT: ") + cmd);
+            }
           }
         }
       }
@@ -285,20 +290,22 @@ void AGV_CommunicationHub::handleWebSocketEvent(uint8_t num, WStype_t type, uint
 
 // Web route handlers
 void AGV_CommunicationHub::handleRoot() {
-  server->send_P(200, "text/html", loginPage);
+  if (server) {
+    server->send_P(200, "text/html", loginPage);
+  }
 }
 
 void AGV_CommunicationHub::handleLogin() {
-  if (server->method() == HTTP_POST) {
+  if (server && server->method() == HTTP_POST) {
     String body = server->arg("plain");
     
     int userStart = body.indexOf("\"username\":\"") + 12;
     int userEnd = body.indexOf("\"", userStart);
-    String username = body.substring(userStart, userEnd);
+    String username = (userStart > 12 && userEnd > userStart) ? body.substring(userStart, userEnd) : "";
     
     int passStart = body.indexOf("\"password\":\"") + 12;
     int passEnd = body.indexOf("\"", passStart);
-    String password = body.substring(passStart, passEnd);
+    String password = (passStart > 12 && passEnd > passStart) ? body.substring(passStart, passEnd) : "";
     
     Serial.printf("\n[AUTH] Login attempt: '%s'\n", username.c_str());
     
@@ -315,14 +322,20 @@ void AGV_CommunicationHub::handleLogin() {
 }
 
 void AGV_CommunicationHub::handleDashboard() {
-  server->send_P(200, "text/html", mainPage);
+  if (server) {
+    server->send_P(200, "text/html", mainPage);
+  }
 }
 
 void AGV_CommunicationHub::handleWiFiSetup() {
-  server->send_P(200, "text/html", wifiSetupPage);
+  if (server) {
+    server->send_P(200, "text/html", wifiSetupPage);
+  }
 }
 
 void AGV_CommunicationHub::handleScan() {
+  if (!server) return;
+  
   Serial.println("[WIFI] Scanning networks...");
   int n = WiFi.scanNetworks();
   String json = "[";
@@ -342,34 +355,36 @@ void AGV_CommunicationHub::handleScan() {
 }
 
 void AGV_CommunicationHub::handleSaveWiFi() {
-  if (server->method() == HTTP_POST) {
-    String body = server->arg("plain");
-    
-    int ssidStart = body.indexOf("\"ssid\":\"") + 8;
-    int ssidEnd = body.indexOf("\"", ssidStart);
-    String ssid = body.substring(ssidStart, ssidEnd);
-    
-    int passStart = body.indexOf("\"password\":\"") + 12;
-    int passEnd = body.indexOf("\"", passStart);
-    String password = body.substring(passStart, passEnd);
-    
-    Serial.printf("\n[WIFI] Saving credentials: '%s'\n", ssid.c_str());
-    
-    // Save to preferences
-    preferences.begin("wifi", false);
-    preferences.putString("ssid", ssid);
-    preferences.putString("password", password);
-    preferences.end();
-    
-    server->send(200, "application/json", "{\"success\":true}");
-    
-    Serial.println("[WIFI] ✅ Credentials saved. Restarting...");
-    delay(1000);
-    ESP.restart();
-  }
+  if (!server || server->method() != HTTP_POST) return;
+  
+  String body = server->arg("plain");
+  
+  int ssidStart = body.indexOf("\"ssid\":\"") + 8;
+  int ssidEnd = body.indexOf("\"", ssidStart);
+  String ssid = (ssidStart > 8 && ssidEnd > ssidStart) ? body.substring(ssidStart, ssidEnd) : "";
+  
+  int passStart = body.indexOf("\"password\":\"") + 12;
+  int passEnd = body.indexOf("\"", passStart);
+  String password = (passStart > 12 && passEnd > passStart) ? body.substring(passStart, passEnd) : "";
+  
+  Serial.printf("\n[WIFI] Saving credentials: '%s'\n", ssid.c_str());
+  
+  // Save to preferences
+  preferences.begin("wifi", false);
+  preferences.putString("ssid", ssid);
+  preferences.putString("password", password);
+  preferences.end();
+  
+  server->send(200, "application/json", "{\"success\":true}");
+  
+  Serial.println("[WIFI] ✅ Credentials saved. Restarting...");
+  delay(1000);
+  ESP.restart();
 }
 
 void AGV_CommunicationHub::handleCaptivePortal() {
-  server->sendHeader("Location", "http://192.168.4.1/setup", true);
-  server->send(302, "text/plain", "");
+  if (server) {
+    server->sendHeader("Location", "http://192.168.4.1/setup", true);
+    server->send(302, "text/plain", "");
+  }
 }
